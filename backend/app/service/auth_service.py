@@ -1,0 +1,54 @@
+from sqlalchemy.orm import Session
+
+from app.common.exceptions import BusinessException
+from app.models.users import User
+from app.schemas.users import UserResponse
+from app.schemas.auth import LoginRequest, LoginResponse, RegisterRequest
+from app.utils.password import verify_password, hash_password
+from app.utils.jwt import create_access_token
+
+
+# 登录服务
+def login(data: LoginRequest, db: Session):
+    user = db.query(User).filter(User.username == data.username).first()
+
+    # 判断账号和密码是否正确
+    if not user or not verify_password(data.password, user.password):
+        raise BusinessException(message="账号或密码错误!请重新输入")
+
+    # 验证账号的状态
+    if user.status != 1:
+        raise BusinessException(
+                message="账号被禁用, 请咨询相关客服申请解禁或者重新申请账号"
+            )
+
+    token = create_access_token(user_id=user.id)
+
+    return LoginResponse(token=token, user=UserResponse.model_validate(user))
+
+
+# 注册服务
+def register(data: RegisterRequest, db: Session):
+    # 查询待注册的用户是否存在
+    exists_user = db.query(User).filter(User.username == data.username).first()
+
+    if exists_user:
+        raise BusinessException(
+            message="用户已经存在, 换个用户名吧"
+        )
+
+    # 注册的用户不存在，则实例一个model--User
+    user_model = User(
+        username=data.username,
+        password=hash_password(data.password),
+        name=data.name or data.username,
+        role="student",
+        phone=data.phone,
+        email = data.email,
+        status=1,
+    )
+    db.add(user_model)
+    db.commit()
+    db.refresh(user_model)
+
+    
