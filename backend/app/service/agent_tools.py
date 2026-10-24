@@ -106,6 +106,39 @@ def build_tools(db: Session, current_user: User):
             return json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)
 
     @tool
+    def list_my_reservations(status: int | None = None):
+        """查询当前用户的预约记录，返回预约ID、实验室/设备、日期、时段、状态。
+        取消预约前必须先调用它找到目标预约的【预约ID】。
+        status 可选：0待审核 1已通过 2已拒绝 3已取消，不传则查全部。"""
+        try:
+            page = reservation_service.get_reservation_page_list(
+                db, current_user, page=1, page_size=50, status=status
+            )
+            if not page.list:
+                return "你当前没有任何预约记录。"
+            lines = []
+
+            for r in page.list:
+                target = r.lab_name or r.equipment_name or "未知"
+                lines.append(
+                    f"预约ID:{r.id} | 类型:{r.type} | {target} | "
+                    f"日期:{r.date} | {r.start_time}-{r.end_time} | 状态:{r.status}"
+                )
+            return "\n".join(lines)
+        except Exception as e:
+            return f"查询预约失败：{type(e).__name__}: {e}"
+
+    @tool
+    def cancel_reservation(reservation_id: int):
+        """根据【预约ID】取消预约。reservation_id 是预约记录的唯一编号，
+        不是实验室ID。如果不确定，请先调用 list_my_reservations 查询。"""
+        try:
+            reservation_service.cancel_reservation(db, current_user, reservation_id)
+            return f"预约取消成功，预约ID：{reservation_id}"
+        except BusinessException as exc:
+            return f"取消预约失败：{exc.message}"
+
+    @tool
     def get_today() -> str:
         """获取服务器当前的日期  2026-09-20"""
         now = datetime.now()
@@ -116,5 +149,7 @@ def build_tools(db: Session, current_user: User):
         list_open_labs,
         list_lab_equipments,
         create_lab_reservation,
+        list_my_reservations,
+        cancel_reservation,
         get_today,
     ]

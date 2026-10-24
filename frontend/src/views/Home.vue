@@ -10,7 +10,7 @@
             欢迎使用智能实验室预约系统 · 当前身份：{{ roleLabel }}
           </div>
         </div>
-        <el-button type="primary" @click="$router.push('/manager/ai-chat')">
+        <el-button type="primary" @click="$router.push('/manager/aichat')">
           打开 AI 助手
         </el-button>
       </div>
