@@ -6,7 +6,7 @@
 ![ChromaDB](https://img.shields.io/badge/ChromaDB-1.5-7f5af0)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
-一个前后端分离的智能实验室预约平台。用户可以在线浏览实验室与设备、提交预约并等待管理员审批；内置的 **LangGraph Agent** 智能助手支持自然语言问答与对话式预约，结合 ChromaDB 向量知识库（RAG）回答实验室规则、安全规范、开放时间等问题。
+一个前后端分离的智能实验室预约平台。用户可以在线浏览实验室与设备、提交预约并等待管理员审批；内置的 **LangGraph Agent** 智能助手支持自然语言问答与对话式预约，回答以 **SSE 流式输出**（打字机效果）实时呈现，结合 ChromaDB 向量知识库（RAG）回答实验室规则、安全规范、开放时间等问题。
 
 ## ✨ 核心功能
 
@@ -15,15 +15,61 @@
 | 🔐 用户认证 | JWT 鉴权（PyJWT + bcrypt），注册 / 登录 / 资料修改 / 密码修改 |
 | 🏫 实验室管理 | 实验室与设备的增删改查，管理员专属 |
 | 📅 预约系统 | 对话式/手动预约 → 待审核 → 管理员审批 → 通过后生效；后台定时任务自动清理过期预约 |
-| 🤖 AI 智能助手 | LangGraph 工具调用 Agent：查询实验室文档、列出可用实验室/设备、确认后真实落库预约、日期换算 |
+| 🤖 AI 智能助手 | LangGraph 工具调用 Agent：查询实验室文档、列出可用实验室/设备、确认后真实落库预约、日期换算；**SSE 流式输出**，逐字实时回复 |
 | 📚 RAG 知识库 | ChromaDB + sentence-transformers 向量化实验室文档，启动时预热模型避免首请求超时 |
 | 📁 文件上传 | 图片/文档/压缩包上传（最大 100MB），静态资源挂载访问 |
+
+## 🖼️ 项目效果展示
+
+### 🔐 用户认证
+
+<table>
+  <tr>
+    <td align="center"><b>登录页</b><br><img src="docs/screenshots/login.png" alt="登录页" width="420"></td>
+    <td align="center"><b>注册页</b><br><img src="docs/screenshots/register.png" alt="注册页" width="420"></td>
+  </tr>
+</table>
+
+### 🏠 首页与个人设置
+
+<table>
+  <tr>
+    <td align="center"><b>系统首页</b><br><img src="docs/screenshots/home.png" alt="系统首页" width="420"></td>
+    <td align="center"><b>修改密码</b><br><img src="docs/screenshots/change-password.png" alt="修改密码" width="420"></td>
+  </tr>
+</table>
+
+### 🏫 实验室
+
+<table>
+  <tr>
+    <td align="center"><b>实验室列表</b><br><img src="docs/screenshots/lab-list.png" alt="实验室列表" width="420"></td>
+    <td align="center"><b>查询实验室列表</b><br><img src="docs/screenshots/lab-query.png" alt="查询实验室列表" width="420"></td>
+  </tr>
+</table>
+
+### 📅 预约管理
+
+<table>
+  <tr>
+    <td align="center"><b>我的预约</b><br><img src="docs/screenshots/my-reservations.png" alt="我的预约" width="420"></td>
+    <td align="center"><b>管理员预约管理</b><br><img src="docs/screenshots/admin-reservations.png" alt="管理员预约管理" width="420"></td>
+  </tr>
+</table>
+
+### 🤖 AI 智能助手（SSE 流式输出）
+
+<table>
+  <tr>
+    <td align="center"><b>AI 对话 — 逐字流式回复，支持工具调用真实落库预约</b><br><img src="docs/screenshots/ai-chat.png" alt="AI 智能助手" width="640"></td>
+  </tr>
+</table>
 
 ## 🏗️ 技术栈
 
 **后端** — Python / FastAPI / SQLAlchemy / LangGraph / LangChain-OpenAI / ChromaDB / sentence-transformers
 
-**前端** — Vue 3 / Vite / Element Plus / Vue Router / Axios / marked（AI 回复 Markdown 渲染）
+**前端** — Vue 3 / Vite / Element Plus / Vue Router / Axios（REST 请求）/ fetch + SSE（AI 流式对话）/ marked（AI 回复 Markdown 渲染）
 
 ## 📐 系统架构
 
@@ -44,7 +90,7 @@ flowchart LR
 
     LLM[大模型 API]
 
-    Chat -->|/api/ai/chat| Agent
+    Chat -->|/api/ai/chat（SSE 流式）| Agent
     Agent -->|tools: search_lab_docs| KB
     Agent -->|tools: list_* / create_reservation| DB
     Agent --> LLM
@@ -92,13 +138,15 @@ npm run dev
 | 实验室 | `/api/lab` | `GET /list` `POST` `PUT /{lab_id}` `DELETE /{lab_id}` |
 | 设备 | `/api/equipment` | `GET /list/{lab_id}` `POST` `PUT /{equipment_id}` `DELETE /{equipment_id}` |
 | 预约 | `/api/reservation` | `GET /list` `POST` `PUT /{id}/cancel` `PUT /{id}/audit` |
-| AI | `/api/ai` | `POST /chat`（多轮对话，Agent 工具调用） |
+| AI | `/api/ai` | `POST /chat`（SSE 流式多轮对话，Agent 工具调用） |
 | 文件 | `/api/files` | `POST /upload` |
 
 ## 📁 项目结构
 
 ```
 lab-agent/
+├── docs/
+│   └── screenshots/     # README 效果展示截图
 ├── backend/
 │   ├── app/
 │   │   ├── api/            # 路由层（auth / user / lab / equipment / reservation / ai / files）
@@ -132,6 +180,7 @@ lab-agent/
 ## 📝 设计要点
 
 - **Agent 安全约束**：预约落库前必须向用户复述完整信息并获得确认；禁止编造数据库不存在的实验室/设备，`lab_id` / `equipment_id` 缺失时必须先查询再创建
+- **SSE 流式输出**：`LangGraph stream_mode="messages"` 逐 token 产出 → `FastAPI StreamingResponse`（`text/event-stream`）→ 前端 `fetch` + `ReadableStream` 边收边渲染；校验/鉴权错误在流开始前以 HTTP 状态码返回，生成中途错误包装为 SSE `error` 事件推送；前端带 120s 兜底超时防止无限等待
 - **对话循环上限**：`recursion_limit = 10`，防止 Agent 无限循环
 - **异步任务**：预约过期扫描在 FastAPI `lifespan` 中启动、关闭时优雅取消
-- **向量库预热**：模型加载移至启动阶段（`asyncio.to_thread`），避免首个请求超过前端 30s 超时
+- **向量库预热**：模型加载移至启动阶段（`asyncio.to_thread`），避免首个 AI 请求迟迟没有 token 输出
