@@ -23,10 +23,31 @@
           :key="index"
           :style="{
             display: 'flex',
+            alignItems: 'flex-start', // 头像与气泡顶部对齐，多行消息时头像不跟着拉伸
             justifyContent: item.role === 'user' ? 'flex-end' : 'flex-start',
             marginBottom: '12px'
           }"
         >
+          <!-- AI 机器人头像：AI 消息显示在气泡左侧 -->
+          <div
+            v-if="item.role === 'assistant'"
+            :style="{
+              width: '36px',
+              height: '36px',
+              marginRight: '8px',
+              flexShrink: 0,
+              borderRadius: '50%',
+              backgroundColor: '#ecf5ff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '20px',
+              border: '1px solid #d9ecff'
+            }"
+          >
+            🤖
+          </div>
+
           <div
             :style="{
               maxWidth: '70%',
@@ -39,6 +60,17 @@
             }"
             v-html="parseMarkdown(item.content)"
           ></div>
+
+          <!-- 用户自己的头像：用户消息显示在气泡右侧；
+               未设置头像时 el-avatar 自动回退显示姓名首字 -->
+          <el-avatar
+            v-if="item.role === 'user'"
+            :size="36"
+            :src="userInfo?.avatar"
+            :style="{ marginLeft: '8px', flexShrink: 0 }"
+          >
+            {{ (userInfo?.name || '我')[0] }}
+          </el-avatar>
         </div>
       </div>
       <!-----------------------------------------------聊天框----------------------------------->
@@ -59,10 +91,15 @@
   </div>
 </template>
 <script setup>
-import { chatApi } from '@/api/ai'
-import { ref, nextTick } from 'vue'
+import { chatStreamApi } from '@/api/ai'
+import { ref, nextTick, reactive } from 'vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify' // 过滤危险的 HTML，防止 XSS 攻击
+import { ElMessage } from 'element-plus'
+import { useUser } from '@/utils/user'
+
+// 当前登录用户信息（响应式），用于展示用户自己的头像
+const { userInfo } = useUser()
 
 const messages = ref([
   {
@@ -90,19 +127,40 @@ const handleSend = async () => {
   input.value = ''
   loading.value = true
   scrollToBottom()
+
+  // 历史消息要在插入占位气泡【之前】取，避免把空气泡也发给后端
+  const history = messages.value.filter(
+    (item) => item.role === 'user' || item.role === 'assistant'
+  )
+
+  // 用 reactive 创建占位气泡：流式期间要频繁修改它的 content，
+  // 只有响应式代理被修改时 Vue 才会刷新界面（直接改普通对象不会触发更新）
+  const assistantMsg = reactive({ role: 'assistant', content: '' })
+  messages.value.push(assistantMsg)
+  scrollToBottom()
+
   try {
-    const history = messages.value.filter(
-      (item) => item.role === 'user' || item.role === 'assistant'
-    )
-    const data = { messages: history }
-    console.log(data)
-    const res = await chatApi(data)
-    if (res.code === 200) {
-      messages.value.push(res.data)
+    // 流式请求：后端每吐一个 token 就回调一次，追加到占位气泡形成打字机效果
+    await chatStreamApi({ messages: history }, (event) => {
+      if (event.type === 'token') {
+        assistantMsg.content += event.content
+      } else if (event.type === 'error') {
+        // 生成中途出错：此时 HTTP 已是 200，后端只能通过 SSE 事件传错误
+        ElMessage.error(event.message)
+      }
+      // type === 'done' 时后端会主动关闭连接，读取循环自然结束，无需处理
       scrollToBottom()
-    }
+    })
+  } catch (e) {
+    // 网络错误/超时/401 的提示已在 chatStreamApi 里弹过，这里只需清理界面
   } finally {
     loading.value = false
+    if (!assistantMsg.content) {
+      // 没有任何内容产出（出错或空回复），把占位的空气泡移除
+      const index = messages.value.indexOf(assistantMsg)
+      if (index !== -1) messages.value.splice(index, 1)
+    }
+    scrollToBottom()
   }
 }
 
